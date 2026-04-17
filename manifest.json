@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "M3U8 Auto Finder",
+  "description": "Автоматически находит m3u8-ссылки на открытой странице и предлагает скачать их.",
+  "version": "1.0.0",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "downloads",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "M3U8 Finder",
+    "default_popup": "popup.html"
+  }
+}
