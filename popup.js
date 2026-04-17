@@ -6,16 +6,6 @@ const downloadAllBtn = document.getElementById("downloadAllBtn");
 let currentUrls = [];
 let currentTabId = null;
 
-function safeFileName(url, index) {
-  try {
-    const pathname = new URL(url).pathname;
-    const last = pathname.split("/").filter(Boolean).pop() || `video-${index + 1}`;
-    return `${last.replace(/\.m3u8$/i, "") || `video-${index + 1}`}.ts`;
-  } catch {
-    return `video-${index + 1}.ts`;
-  }
-}
-
 function setStatus(text) {
   statusEl.textContent = text;
 }
@@ -42,28 +32,33 @@ function renderList(urls) {
 
     const button = document.createElement("button");
     button.className = "download-btn";
-    button.textContent = "Скачать видео";
-    button.addEventListener("click", () => downloadVideo(url, index));
+    button.textContent = "Быстрая загрузка";
+    button.addEventListener("click", () => downloadFastest(url, index));
 
     item.append(text, button);
     listEl.append(item);
   });
 }
 
-function downloadVideo(url, index) {
-  setStatus(`Собираем видео #${index + 1}...`);
+function downloadFastest(url, index) {
+  setStatus(`Запуск быстрой загрузки #${index + 1}...`);
+
   chrome.runtime.sendMessage(
     {
       type: "DOWNLOAD_VIDEO",
-      url,
-      filename: safeFileName(url, index)
+      url
     },
     (response) => {
       if (!response?.ok) {
         setStatus(`Ошибка: ${response?.error || "неизвестная ошибка"}`);
         return;
       }
-      setStatus(`Видео #${index + 1} подготовлено (${response.segmentCount} сегм.) и отправлено в загрузки.`);
+
+      if (response.bandwidth) {
+        setStatus(`Загрузка #${index + 1} запущена (макс. BANDWIDTH=${response.bandwidth}).`);
+      } else {
+        setStatus(`Загрузка #${index + 1} запущена.`);
+      }
     }
   );
 }
@@ -93,7 +88,7 @@ function loadUrls() {
 refreshBtn.addEventListener("click", loadUrls);
 
 downloadAllBtn.addEventListener("click", () => {
-  currentUrls.forEach((url, index) => downloadVideo(url, index));
+  currentUrls.forEach((url, index) => downloadFastest(url, index));
 });
 
 (async () => {
