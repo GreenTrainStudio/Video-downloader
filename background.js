@@ -94,12 +94,13 @@ function playlistBaseName(url) {
   }
 }
 
-function createDownloadJob(url) {
+function createDownloadJob(url, preferredName = "") {
   const id = String(nextDownloadJobId);
   nextDownloadJobId += 1;
 
   const now = Date.now();
-  const name = playlistBaseName(url);
+  const trimmedName = typeof preferredName === "string" ? preferredName.trim() : "";
+  const name = trimmedName || playlistBaseName(url);
   const job = {
     id,
     url,
@@ -318,7 +319,7 @@ function toDataUrl(chunks) {
   return `data:video/mp2t;base64,${base64}`;
 }
 
-async function buildVideoFromM3u8(m3u8Url, onProgress = null) {
+async function buildVideoFromM3u8(m3u8Url, preferredName = "", onProgress = null) {
   const firstText = await fetchText(m3u8Url);
 
   let mediaUrl = m3u8Url;
@@ -340,10 +341,13 @@ async function buildVideoFromM3u8(m3u8Url, onProgress = null) {
 
   const chunks = await downloadSegmentsConcurrently(segmentUrls, 8, onProgress);
 
+  const trimmedName = typeof preferredName === "string" ? preferredName.trim() : "";
+  const outputBaseName = trimmedName || playlistBaseName(mediaUrl);
+
   return {
     dataUrl: toDataUrl(chunks),
     segmentCount: segmentUrls.length,
-    filename: sanitizeFilename(playlistBaseName(mediaUrl), "ts")
+    filename: sanitizeFilename(outputBaseName, "ts")
   };
 }
 
@@ -416,18 +420,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "DOWNLOAD_VIDEO") {
-    const { url } = message;
+    const { url, preferredName } = message;
     if (typeof url !== "string" || !url) {
       sendResponse({ ok: false, error: "Invalid URL" });
       return;
     }
 
-    const job = createDownloadJob(url);
+    const job = createDownloadJob(url, preferredName);
 
     (async () => {
       let dataUrl = null;
       try {
-        const result = await buildVideoFromM3u8(url, (completedSegments, totalSegments) => {
+        const result = await buildVideoFromM3u8(url, preferredName, (completedSegments, totalSegments) => {
           updateDownloadJob(job.id, {
             status: "downloading",
             completedSegments,

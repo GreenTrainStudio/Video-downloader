@@ -8,6 +8,7 @@ const downloadingListEl = document.getElementById("downloadingList");
 
 let currentUrls = [];
 let currentTabId = null;
+let currentTabTitle = "";
 let downloadsPollTimer = null;
 
 function setStatus(text) {
@@ -165,7 +166,8 @@ function downloadVideo(url, index) {
   chrome.runtime.sendMessage(
     {
       type: "DOWNLOAD_VIDEO",
-      url
+      url,
+      preferredName: currentTabTitle
     },
     (response) => {
       if (!response?.ok) {
@@ -179,12 +181,16 @@ function downloadVideo(url, index) {
   );
 }
 
-function getActiveTabId() {
+function getActiveTabInfo() {
   return new Promise((resolve, reject) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tabId = tabs?.[0]?.id;
+      const tab = tabs?.[0];
+      const tabId = tab?.id;
       if (typeof tabId === "number") {
-        resolve(tabId);
+        resolve({
+          id: tabId,
+          title: typeof tab.title === "string" ? tab.title : ""
+        });
       } else {
         reject(new Error("Active tab not found"));
       }
@@ -231,7 +237,9 @@ window.addEventListener("unload", () => {
 
 (async () => {
   try {
-    currentTabId = await getActiveTabId();
+    const activeTab = await getActiveTabInfo();
+    currentTabId = activeTab.id;
+    currentTabTitle = activeTab.title;
     loadUrls();
     startDownloadsPolling();
   } catch (error) {
