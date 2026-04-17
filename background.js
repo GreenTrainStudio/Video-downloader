@@ -198,7 +198,7 @@ async function downloadSegmentsConcurrently(urls, concurrency = 8) {
   return results;
 }
 
-function toBlobUrl(chunks) {
+function toDataUrl(chunks) {
   const totalSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
   const merged = new Uint8Array(totalSize);
 
@@ -208,7 +208,15 @@ function toBlobUrl(chunks) {
     offset += chunk.byteLength;
   }
 
-  return URL.createObjectURL(new Blob([merged], { type: "video/mp2t" }));
+  let binary = "";
+  const step = 0x8000;
+  for (let i = 0; i < merged.length; i += step) {
+    const slice = merged.subarray(i, i + step);
+    binary += String.fromCharCode(...slice);
+  }
+
+  const base64 = btoa(binary);
+  return `data:video/mp2t;base64,${base64}`;
 }
 
 async function buildVideoFromM3u8(m3u8Url) {
@@ -230,7 +238,7 @@ async function buildVideoFromM3u8(m3u8Url) {
   const chunks = await downloadSegmentsConcurrently(segmentUrls, 8);
 
   return {
-    blobUrl: toBlobUrl(chunks),
+    dataUrl: toDataUrl(chunks),
     segmentCount: segmentUrls.length,
     filename: sanitizeFilename(playlistBaseName(mediaUrl), "ts")
   };
@@ -284,14 +292,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     (async () => {
-      let blobUrl = null;
+      let dataUrl = null;
       try {
         const result = await buildVideoFromM3u8(url);
-        blobUrl = result.blobUrl;
+        dataUrl = result.dataUrl;
 
         chrome.downloads.download(
           {
-            url: blobUrl,
+            url: dataUrl,
             filename: result.filename,
             saveAs: false,
             conflictAction: "uniquify"
@@ -302,15 +310,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             } else {
               sendResponse({ ok: true, downloadId, segmentCount: result.segmentCount });
             }
-            if (blobUrl) {
-              URL.revokeObjectURL(blobUrl);
-            }
           }
         );
       } catch (error) {
-        if (blobUrl) {
-          URL.revokeObjectURL(blobUrl);
-        }
         sendResponse({ ok: false, error: error.message || "Не удалось собрать видео" });
       }
     })();
