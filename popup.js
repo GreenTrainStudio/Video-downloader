@@ -114,8 +114,10 @@ async function resolveLowResPreviewUrl(m3u8Url) {
       lowResPreviewCache.set(m3u8Url, previewUrl);
       return previewUrl;
     } catch {
-      lowResPreviewCache.set(m3u8Url, "");
-      return "";
+      // Если не удалось прочитать master playlist (CORS/авторизация),
+      // возвращаем исходный m3u8 вместо пустого значения.
+      lowResPreviewCache.set(m3u8Url, m3u8Url);
+      return m3u8Url;
     } finally {
       lowResPreviewLoading.delete(m3u8Url);
     }
@@ -127,18 +129,6 @@ async function resolveLowResPreviewUrl(m3u8Url) {
 
 function attachLowResPreview(videoEl, m3u8Url, fallbackPoster = "") {
   if (!videoEl || !videoEl.isConnected) {
-    return;
-  }
-
-  const canPlayHls = Boolean(
-    videoEl.canPlayType("application/vnd.apple.mpegurl") ||
-    videoEl.canPlayType("application/x-mpegURL")
-  );
-
-  if (!canPlayHls) {
-    if (fallbackPoster) {
-      videoEl.poster = fallbackPoster;
-    }
     return;
   }
 
