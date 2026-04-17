@@ -1,6 +1,8 @@
 const tabStreams = new Map();
 const activeDownloads = new Map();
 let nextDownloadJobId = 1;
+const DOWNLOAD_JOB_TTL_MS = 60 * 60 * 1000;
+const TERMINAL_JOB_STATUSES = new Set(["done", "error"]);
 
 function normalizeUrl(url) {
   try {
@@ -111,7 +113,8 @@ function createDownloadJob(url) {
     etaSeconds: null,
     filename: null,
     error: null,
-    downloadId: null
+    downloadId: null,
+    completedAt: null
   };
 
   activeDownloads.set(id, job);
@@ -144,9 +147,28 @@ function updateDownloadJob(jobId, patch = {}) {
   } else if (job.status === "done") {
     job.etaSeconds = 0;
   }
+
+  if (TERMINAL_JOB_STATUSES.has(job.status) && !job.completedAt) {
+    job.completedAt = Date.now();
+  }
+}
+
+function pruneDownloadJobs() {
+  const now = Date.now();
+  for (const [jobId, job] of activeDownloads.entries()) {
+    if (!TERMINAL_JOB_STATUSES.has(job.status)) {
+      continue;
+    }
+
+    const completedAt = Number(job.completedAt) || Number(job.updatedAt) || now;
+    if (now - completedAt >= DOWNLOAD_JOB_TTL_MS) {
+      activeDownloads.delete(jobId);
+    }
+  }
 }
 
 function snapshotDownloadJobs() {
+  pruneDownloadJobs();
   return Array.from(activeDownloads.values())
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .map((job) => ({ ...job }));
@@ -367,6 +389,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "GET_DOWNLOADS") {
     sendResponse({ jobs: snapshotDownloadJobs() });
+    return;
+  }
+
+  if (message.type === "DISMISS_DOWNLOAD") {
+    const { jobId } = message;
+    if (typeof jobId !== "string" || !jobId) {
+      sendResponse({ ok: false, error: "Invalid jobId" });
+      return;
+    }
+
+    const job = activeDownloads.get(jobId);
+    if (!job) {
+      sendResponse({ ok: false, error: "Job not found" });
+      return;
+    }
+
+    if (!TERMINAL_JOB_STATUSES.has(job.status)) {
+      sendResponse({ ok: false, error: "Job is not completed" });
+      return;
+    }
+
+    activeDownloads.delete(jobId);
+    sendResponse({ ok: true });
     return;
   }
 

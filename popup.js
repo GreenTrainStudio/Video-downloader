@@ -66,6 +66,20 @@ function statusLabel(status) {
   }
 }
 
+function isDismissibleJob(job) {
+  return job.status === "done" || job.status === "error";
+}
+
+function dismissDownload(jobId) {
+  if (typeof jobId !== "string" || !jobId) {
+    return;
+  }
+
+  chrome.runtime.sendMessage({ type: "DISMISS_DOWNLOAD", jobId }, () => {
+    loadDownloads();
+  });
+}
+
 function renderDownloads(jobs = []) {
   const visibleJobs = jobs.slice(0, 10);
   downloadsPanelEl.classList.toggle("hidden", visibleJobs.length === 0);
@@ -77,7 +91,19 @@ function renderDownloads(jobs = []) {
 
     const title = document.createElement("div");
     title.className = "video-title";
-    title.textContent = toDisplayName(job);
+    const titleText = document.createElement("span");
+    titleText.className = "video-title-text";
+    titleText.textContent = toDisplayName(job);
+    title.append(titleText);
+    if (isDismissibleJob(job)) {
+      const closeBtn = document.createElement("button");
+      closeBtn.className = "dismiss-btn";
+      closeBtn.type = "button";
+      closeBtn.title = "Скрыть выполненную загрузку";
+      closeBtn.textContent = "×";
+      closeBtn.addEventListener("click", () => dismissDownload(job.id));
+      title.append(closeBtn);
+    }
 
     const progressTrack = document.createElement("div");
     progressTrack.className = "video-progress-track";
