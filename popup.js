@@ -10,8 +10,6 @@ let currentTabId = null;
 let currentTabTitle = "";
 let downloadsPollTimer = null;
 let latestJobs = [];
-const lowResPreviewCache = new Map();
-const lowResPreviewLoading = new Map();
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -40,113 +38,6 @@ function formatEta(seconds) {
 function formatPercent(value) {
   const bounded = Math.max(0, Math.min(1, Number(value) || 0));
   return `${Math.round(bounded * 100)}%`;
-}
-
-function absoluteUrl(pathOrUrl, baseUrl) {
-  try {
-    return new URL(pathOrUrl, baseUrl).toString();
-  } catch {
-    return null;
-  }
-}
-
-function parseAttribute(line, name) {
-  const re = new RegExp(`${name}=([^,]+)`);
-  const match = line.match(re);
-  if (!match) {
-    return null;
-  }
-  return match[1].replace(/^"|"$/g, "").trim();
-}
-
-async function fetchText(url) {
-  const response = await fetch(url, { credentials: "include" });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return response.text();
-}
-
-async function resolveLowResPreviewUrl(m3u8Url) {
-  if (typeof m3u8Url !== "string" || !m3u8Url) {
-    return "";
-  }
-
-  if (lowResPreviewCache.has(m3u8Url)) {
-    return lowResPreviewCache.get(m3u8Url);
-  }
-  if (lowResPreviewLoading.has(m3u8Url)) {
-    return lowResPreviewLoading.get(m3u8Url);
-  }
-
-  const task = (async () => {
-    try {
-      const text = await fetchText(m3u8Url);
-      const lines = text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-      let selected = null;
-      for (let i = 0; i < lines.length; i += 1) {
-        const line = lines[i];
-        if (!line.startsWith("#EXT-X-STREAM-INF")) {
-          continue;
-        }
-
-        const next = lines[i + 1];
-        if (!next || next.startsWith("#")) {
-          continue;
-        }
-
-        const bandwidth = Number.parseInt(parseAttribute(line, "BANDWIDTH") || "0", 10);
-        const resolved = absoluteUrl(next, m3u8Url);
-        if (!resolved) {
-          continue;
-        }
-
-        if (!selected || bandwidth < selected.bandwidth) {
-          selected = { url: resolved, bandwidth };
-        }
-      }
-
-      const previewUrl = selected?.url || m3u8Url;
-      lowResPreviewCache.set(m3u8Url, previewUrl);
-      return previewUrl;
-    } catch {
-      // Если не удалось прочитать master playlist (CORS/авторизация),
-      // возвращаем исходный m3u8 вместо пустого значения.
-      lowResPreviewCache.set(m3u8Url, m3u8Url);
-      return m3u8Url;
-    } finally {
-      lowResPreviewLoading.delete(m3u8Url);
-    }
-  })();
-
-  lowResPreviewLoading.set(m3u8Url, task);
-  return task;
-}
-
-function attachLowResPreview(videoEl, m3u8Url, fallbackPoster = "") {
-  if (!videoEl || !videoEl.isConnected) {
-    return;
-  }
-
-  resolveLowResPreviewUrl(m3u8Url).then((previewUrl) => {
-    if (!previewUrl || !videoEl.isConnected) {
-      if (fallbackPoster) {
-        videoEl.poster = fallbackPoster;
-      }
-      return;
-    }
-
-    videoEl.src = previewUrl;
-    videoEl.play().catch(() => {
-      if (fallbackPoster) {
-        videoEl.poster = fallbackPoster;
-      }
-    });
-  });
 }
 
 function toDisplayName(job) {
@@ -235,23 +126,16 @@ function renderUnifiedList() {
     const card = document.createElement("li");
     card.className = `video-card ${entry.job ? `status-${entry.job.status}` : ""}`.trim();
 
-    const thumb = document.createElement("video");
+    const thumb = document.createElement("div");
     thumb.className = "video-thumb";
-    thumb.muted = true;
-    thumb.autoplay = true;
-    thumb.loop = true;
-    thumb.playsInline = true;
-    thumb.preload = "metadata";
-    const fallbackPoster = entry.previewUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='136' height='76'%3E%3Crect width='100%25' height='100%25' fill='%231e293b'/%3E%3Cpolygon points='54,24 54,52 82,38' fill='%2394a3b8'/%3E%3C/svg%3E";
-    thumb.poster = fallbackPoster;
-    attachLowResPreview(thumb, entry.url, fallbackPoster);
+    thumb.textContent = "Без превью";
 
     const content = document.createElement("div");
     content.className = "video-card-content";
 
     const title = document.createElement("div");
     title.className = "video-card-title";
-    title.textContent = entry.title || "Видео";
+    title.textContent = entry.job ? toDisplayName(entry.job) : (entry.title || "Видео");
 
     const controls = document.createElement("div");
     controls.className = "video-card-controls";
@@ -339,7 +223,7 @@ function renderList(urls) {
 
 function downloadVideo(item, index) {
   const url = item?.url;
-  const preferredName = currentTabTitle || item?.title || "";
+  const preferredName = item?.title || currentTabTitle || "";
   if (typeof url !== "string" || !url) {
     setStatus("Ошибка: ссылка на видео не найдена.");
     return;

@@ -186,10 +186,17 @@ button {
   width: 136px;
   height: 76px;
   border-radius: 8px;
-  object-fit: cover;
   background: #0b1223;
   border: 1px solid #334155;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
 }
 
 .video-card-content {
