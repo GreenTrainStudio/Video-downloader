@@ -187,8 +187,9 @@ button {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   flex: 1;
+  justify-content: space-between;
 }
 
 .video-card-title {
@@ -199,14 +200,7 @@ button {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-.video-card-url {
-  font-size: 11px;
-  color: #94a3b8;
-  word-break: break-all;
-  max-height: 32px;
-  overflow: hidden;
+  min-height: 34px;
 }
 
 .download-btn {
