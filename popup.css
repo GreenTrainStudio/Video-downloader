@@ -1,0 +1,79 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, Arial, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  width: 420px;
+}
+
+main {
+  padding: 12px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+#status {
+  margin: 0 0 10px;
+  color: #94a3b8;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#refreshBtn {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+#downloadAllBtn,
+.download-btn {
+  background: #16a34a;
+  color: white;
+}
+
+#downloadAllBtn:disabled {
+  background: #14532d;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.item {
+  background: #1e293b;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.url {
+  word-break: break-all;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
