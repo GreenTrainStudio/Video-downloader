@@ -69,24 +69,24 @@ function absoluteUrl(pathOrUrl, baseUrl) {
   }
 }
 
-function sanitizeFilename(name, extension = "m3u8") {
-  const safe = String(name || "stream")
+function sanitizeFilename(name, extension = "ts") {
+  const safe = String(name || "video")
     .replace(/[\\/:*?"<>|\u0000-\u001F]/g, "_")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[. ]+$/g, "");
 
-  const base = safe || "stream";
+  const base = safe || "video";
   return `${base}.${extension}`;
 }
 
 function playlistBaseName(url) {
   try {
     const pathname = new URL(url).pathname;
-    const name = pathname.split("/").filter(Boolean).pop() || "stream";
-    return name.replace(/\.m3u8($|\?.*)/i, "") || "stream";
+    const name = pathname.split("/").filter(Boolean).pop() || "video";
+    return name.replace(/\.m3u8($|\?.*)/i, "") || "video";
   } catch {
-    return "stream";
+    return "video";
   }
 }
 
@@ -130,25 +130,117 @@ function extractVariantPlaylist(masterText, baseUrl) {
   return best;
 }
 
-async function resolveFastestStreamUrl(m3u8Url) {
-  const text = await fetchText(m3u8Url);
-  if (!text.includes("#EXT-X-STREAM-INF")) {
-    return {
-      url: m3u8Url,
-      bandwidth: null,
-      filename: sanitizeFilename(playlistBaseName(m3u8Url), "m3u8")
-    };
+function parseMediaPlaylist(mediaText, baseUrl) {
+  const lines = mediaText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const segments = [];
+  let initSegment = null;
+
+  for (const line of lines) {
+    if (line.startsWith("#EXT-X-KEY")) {
+      throw new Error("Зашифрованный поток (EXT-X-KEY) не поддерживается.");
+    }
+
+    if (line.startsWith("#EXT-X-MAP")) {
+      const mapUri = parseAttribute(line, "URI");
+      if (mapUri) {
+        initSegment = absoluteUrl(mapUri, baseUrl);
+      }
+      continue;
+    }
+
+    if (line.startsWith("#")) {
+      continue;
+    }
+
+    const resolved = absoluteUrl(line, baseUrl);
+    if (resolved) {
+      segments.push(resolved);
+    }
   }
 
-  const best = extractVariantPlaylist(text, m3u8Url);
-  if (!best) {
-    throw new Error("Не удалось выбрать вариант качества из master playlist.");
+  if (initSegment) {
+    segments.unshift(initSegment);
   }
+
+  if (!segments.length) {
+    throw new Error("Не удалось найти сегменты видео в плейлисте.");
+  }
+
+  return segments;
+}
+
+async function fetchBinary(url) {
+  const response = await fetch(url, { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} при загрузке сегмента`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function downloadSegmentsConcurrently(urls, concurrency = 8) {
+  const results = new Array(urls.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < urls.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await fetchBinary(urls[current]);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, urls.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+function toDataUrl(chunks) {
+  const totalSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const merged = new Uint8Array(totalSize);
+
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  let binary = "";
+  const step = 0x8000;
+  for (let i = 0; i < merged.length; i += step) {
+    const slice = merged.subarray(i, i + step);
+    binary += String.fromCharCode(...slice);
+  }
+
+  const base64 = btoa(binary);
+  return `data:video/mp2t;base64,${base64}`;
+}
+
+async function buildVideoFromM3u8(m3u8Url) {
+  const firstText = await fetchText(m3u8Url);
+
+  let mediaUrl = m3u8Url;
+  let mediaText = firstText;
+
+  if (firstText.includes("#EXT-X-STREAM-INF")) {
+    const bestVariant = extractVariantPlaylist(firstText, m3u8Url);
+    if (!bestVariant) {
+      throw new Error("Не удалось выбрать вариант качества из master playlist.");
+    }
+    mediaUrl = bestVariant.url;
+    mediaText = await fetchText(mediaUrl);
+  }
+
+  const segmentUrls = parseMediaPlaylist(mediaText, mediaUrl);
+  const chunks = await downloadSegmentsConcurrently(segmentUrls, 8);
 
   return {
-    url: best.url,
-    bandwidth: best.bandwidth,
-    filename: sanitizeFilename(playlistBaseName(best.url), "m3u8")
+    dataUrl: toDataUrl(chunks),
+    segmentCount: segmentUrls.length,
+    filename: sanitizeFilename(playlistBaseName(mediaUrl), "ts")
   };
 }
 
@@ -201,25 +293,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     (async () => {
       try {
-        const stream = await resolveFastestStreamUrl(url);
+        const result = await buildVideoFromM3u8(url);
 
         chrome.downloads.download(
           {
-            url: stream.url,
-            filename: stream.filename,
+            url: result.dataUrl,
+            filename: result.filename,
             saveAs: true,
             conflictAction: "uniquify"
           },
           (downloadId) => {
             if (chrome.runtime.lastError) {
               sendResponse({ ok: false, error: chrome.runtime.lastError.message });
-              return;
+            } else {
+              sendResponse({ ok: true, downloadId, segmentCount: result.segmentCount });
             }
-            sendResponse({ ok: true, downloadId, bandwidth: stream.bandwidth, url: stream.url });
           }
         );
       } catch (error) {
-        sendResponse({ ok: false, error: error.message || "Не удалось запустить загрузку" });
+        sendResponse({ ok: false, error: error.message || "Не удалось собрать видео" });
       }
     })();
 
