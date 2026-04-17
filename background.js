@@ -69,6 +69,17 @@ function absoluteUrl(pathOrUrl, baseUrl) {
   }
 }
 
+function sanitizeFilename(name, extension = "m3u8") {
+  const safe = String(name || "video")
+    .replace(/[\\/:*?"<>|\u0000-\u001F]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "");
+
+  const base = safe || "video";
+  return `${base}.${extension}`;
+}
+
 function playlistBaseName(url) {
   try {
     const pathname = new URL(url).pathname;
@@ -183,7 +194,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         const fastest = await resolveFastestStreamUrl(url);
-        const filename = `${playlistBaseName(fastest.url)}.m3u8`;
+        const filename = sanitizeFilename(playlistBaseName(fastest.url), "m3u8");
 
         chrome.downloads.download(
           {
