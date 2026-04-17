@@ -182,14 +182,23 @@ button {
   align-items: stretch;
 }
 
-.video-thumb {
+.video-thumb-wrap {
   width: 136px;
   height: 76px;
   border-radius: 8px;
-  object-fit: cover;
-  background: #0b1223;
   border: 1px solid #334155;
+  background: #0b1223;
+  position: relative;
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+.video-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
 }
 
 .video-card-content {

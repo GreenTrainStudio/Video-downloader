@@ -125,8 +125,8 @@ async function resolveLowResPreviewUrl(m3u8Url) {
   return task;
 }
 
-function attachLowResPreview(videoEl, m3u8Url, fallbackPoster = "") {
-  if (!videoEl || !videoEl.isConnected) {
+function attachLowResPreview(videoEl, fallbackImageEl, m3u8Url) {
+  if (!videoEl || !videoEl.isConnected || !fallbackImageEl) {
     return;
   }
 
@@ -136,25 +136,32 @@ function attachLowResPreview(videoEl, m3u8Url, fallbackPoster = "") {
   );
 
   if (!canPlayHls) {
-    if (fallbackPoster) {
-      videoEl.poster = fallbackPoster;
-    }
+    videoEl.classList.add("hidden");
+    fallbackImageEl.classList.remove("hidden");
     return;
   }
 
+  const showFallback = () => {
+    videoEl.classList.add("hidden");
+    fallbackImageEl.classList.remove("hidden");
+  };
+  const showVideo = () => {
+    fallbackImageEl.classList.add("hidden");
+    videoEl.classList.remove("hidden");
+  };
+
+  videoEl.addEventListener("playing", showVideo, { once: true });
+  videoEl.addEventListener("error", showFallback, { once: true });
+
   resolveLowResPreviewUrl(m3u8Url).then((previewUrl) => {
     if (!previewUrl || !videoEl.isConnected) {
-      if (fallbackPoster) {
-        videoEl.poster = fallbackPoster;
-      }
+      showFallback();
       return;
     }
 
     videoEl.src = previewUrl;
     videoEl.play().catch(() => {
-      if (fallbackPoster) {
-        videoEl.poster = fallbackPoster;
-      }
+      showFallback();
     });
   });
 }
@@ -245,16 +252,27 @@ function renderUnifiedList() {
     const card = document.createElement("li");
     card.className = `video-card ${entry.job ? `status-${entry.job.status}` : ""}`.trim();
 
+    const fallbackPoster = entry.previewUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='136' height='76'%3E%3Crect width='100%25' height='100%25' fill='%231e293b'/%3E%3Cpolygon points='54,24 54,52 82,38' fill='%2394a3b8'/%3E%3C/svg%3E";
+    const thumbWrap = document.createElement("div");
+    thumbWrap.className = "video-thumb-wrap";
+
+    const fallbackImage = document.createElement("img");
+    fallbackImage.className = "video-thumb";
+    fallbackImage.src = fallbackPoster;
+    fallbackImage.alt = "Превью видео";
+    fallbackImage.referrerPolicy = "no-referrer";
+    fallbackImage.loading = "lazy";
+
     const thumb = document.createElement("video");
-    thumb.className = "video-thumb";
+    thumb.className = "video-thumb hidden";
     thumb.muted = true;
     thumb.autoplay = true;
     thumb.loop = true;
     thumb.playsInline = true;
     thumb.preload = "metadata";
-    const fallbackPoster = entry.previewUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='136' height='76'%3E%3Crect width='100%25' height='100%25' fill='%231e293b'/%3E%3Cpolygon points='54,24 54,52 82,38' fill='%2394a3b8'/%3E%3C/svg%3E";
-    thumb.poster = fallbackPoster;
-    attachLowResPreview(thumb, entry.url, fallbackPoster);
+
+    attachLowResPreview(thumb, fallbackImage, entry.url);
+    thumbWrap.append(fallbackImage, thumb);
 
     const content = document.createElement("div");
     content.className = "video-card-content";
@@ -311,7 +329,7 @@ function renderUnifiedList() {
       content.append(progressTrack, details);
     }
 
-    card.append(thumb, content);
+    card.append(thumbWrap, content);
     videoQueueListEl.append(card);
   });
 }
