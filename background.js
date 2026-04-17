@@ -1,4 +1,5 @@
 const tabStreams = new Map();
+const tabMediaMeta = new Map();
 const activeDownloads = new Map();
 let nextDownloadJobId = 1;
 const DOWNLOAD_JOB_TTL_MS = 60 * 60 * 1000;
@@ -25,6 +26,12 @@ function updateBadge(tabId) {
   const count = tabStreams.get(tabId)?.size ?? 0;
   chrome.action.setBadgeBackgroundColor({ tabId, color: "#0B8043" });
   chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : "" });
+}
+
+function sanitizeMeta(meta = {}) {
+  const title = typeof meta.title === "string" ? meta.title.trim() : "";
+  const previewUrl = typeof meta.previewUrl === "string" ? meta.previewUrl.trim() : "";
+  return { title, previewUrl };
 }
 
 function addUrls(tabId, urls = []) {
@@ -364,12 +371,14 @@ chrome.webRequest.onCompleted.addListener(
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading") {
     tabStreams.set(tabId, new Set());
+    tabMediaMeta.delete(tabId);
     updateBadge(tabId);
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabStreams.delete(tabId);
+  tabMediaMeta.delete(tabId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -380,6 +389,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "FOUND_M3U8") {
     const tabId = sender.tab?.id;
     addUrls(tabId, message.urls);
+    if (Number.isInteger(tabId) && tabId >= 0) {
+      tabMediaMeta.set(tabId, sanitizeMeta(message.meta));
+    }
     sendResponse({ ok: true });
     return;
   }
@@ -387,7 +399,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_M3U8") {
     const tabId = message.tabId;
     const urls = Array.from(tabStreams.get(tabId) ?? []);
-    sendResponse({ urls });
+    const meta = sanitizeMeta(tabMediaMeta.get(tabId));
+    const items = urls.map((url) => ({
+      url,
+      title: meta.title || playlistBaseName(url),
+      previewUrl: meta.previewUrl
+    }));
+    sendResponse({ urls, items });
     return;
   }
 

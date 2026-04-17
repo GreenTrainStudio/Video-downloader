@@ -6,7 +6,7 @@ const downloadAllBtn = document.getElementById("downloadAllBtn");
 const downloadsPanelEl = document.getElementById("downloadsPanel");
 const downloadingListEl = document.getElementById("downloadingList");
 
-let currentUrls = [];
+let currentItems = [];
 let currentTabId = null;
 let currentTabTitle = "";
 let downloadsPollTimer = null;
@@ -132,42 +132,81 @@ function renderDownloads(jobs = []) {
 
 function renderList(urls) {
   listEl.innerHTML = "";
-  currentUrls = urls;
-  downloadAllBtn.disabled = urls.length === 0;
+  const items = urls
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return {
+          url: entry,
+          title: currentTabTitle || "Видео",
+          previewUrl: ""
+        };
+      }
+      return {
+        url: entry?.url || "",
+        title: entry?.title || currentTabTitle || "Видео",
+        previewUrl: entry?.previewUrl || ""
+      };
+    })
+    .filter((entry) => typeof entry.url === "string" && entry.url);
 
-  if (!urls.length) {
+  currentItems = items;
+  downloadAllBtn.disabled = items.length === 0;
+
+  if (!items.length) {
     setStatus("m3u8-ссылки не найдены на этой вкладке.");
     return;
   }
 
-  setStatus(`Найдено плейлистов: ${urls.length}`);
+  setStatus(`Найдено плейлистов: ${items.length}`);
 
-  urls.forEach((url, index) => {
-    const item = document.createElement("li");
-    item.className = "item";
+  items.forEach((entry, index) => {
+    const card = document.createElement("li");
+    card.className = "video-card";
 
-    const text = document.createElement("div");
-    text.className = "url";
-    text.textContent = url;
+    const thumb = document.createElement("img");
+    thumb.className = "video-thumb";
+    thumb.alt = "Превью видео";
+    thumb.loading = "lazy";
+    thumb.referrerPolicy = "no-referrer";
+    thumb.src = entry.previewUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='136' height='76'%3E%3Crect width='100%25' height='100%25' fill='%231e293b'/%3E%3Cpolygon points='54,24 54,52 82,38' fill='%2394a3b8'/%3E%3C/svg%3E";
+
+    const content = document.createElement("div");
+    content.className = "video-card-content";
+
+    const title = document.createElement("div");
+    title.className = "video-card-title";
+    title.textContent = entry.title || "Видео";
+
+    const meta = document.createElement("div");
+    meta.className = "video-card-url";
+    meta.textContent = entry.url;
 
     const button = document.createElement("button");
     button.className = "download-btn";
-    button.textContent = "Скачать видео";
-    button.addEventListener("click", () => downloadVideo(url, index));
+    button.textContent = "Скачать";
+    button.addEventListener("click", () => downloadVideo(entry, index));
 
-    item.append(text, button);
-    listEl.append(item);
+    content.append(title, meta, button);
+    card.append(thumb, content);
+    listEl.append(card);
   });
 }
 
-function downloadVideo(url, index) {
+function downloadVideo(item, index) {
+  const url = item?.url;
+  const preferredName = item?.title || currentTabTitle;
+  if (typeof url !== "string" || !url) {
+    setStatus("Ошибка: ссылка на видео не найдена.");
+    return;
+  }
+
   setStatus(`Добавлено в загрузку видео #${index + 1}.`);
 
   chrome.runtime.sendMessage(
     {
       type: "DOWNLOAD_VIDEO",
       url,
-      preferredName: currentTabTitle
+      preferredName
     },
     (response) => {
       if (!response?.ok) {
@@ -202,8 +241,8 @@ function loadUrls() {
   setStatus("Ищем m3u8-ссылки...");
 
   chrome.runtime.sendMessage({ type: "GET_M3U8", tabId: currentTabId }, (response) => {
-    const urls = Array.isArray(response?.urls) ? response.urls : [];
-    renderList(urls);
+    const items = Array.isArray(response?.items) ? response.items : (Array.isArray(response?.urls) ? response.urls : []);
+    renderList(items);
   });
 }
 
@@ -225,7 +264,7 @@ function startDownloadsPolling() {
 refreshBtn.addEventListener("click", loadUrls);
 
 downloadAllBtn.addEventListener("click", () => {
-  currentUrls.forEach((url, index) => downloadVideo(url, index));
+  currentItems.forEach((item, index) => downloadVideo(item, index));
 });
 
 window.addEventListener("unload", () => {
