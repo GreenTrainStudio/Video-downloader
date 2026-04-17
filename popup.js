@@ -3,11 +3,119 @@ const listEl = document.getElementById("list");
 const refreshBtn = document.getElementById("refreshBtn");
 const downloadAllBtn = document.getElementById("downloadAllBtn");
 
+const downloadsPanelEl = document.getElementById("downloadsPanel");
+const overallPercentEl = document.getElementById("overallPercent");
+const overallProgressBarEl = document.getElementById("overallProgressBar");
+const overallEtaEl = document.getElementById("overallEta");
+const downloadingListEl = document.getElementById("downloadingList");
+
 let currentUrls = [];
 let currentTabId = null;
+let downloadsPollTimer = null;
 
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+function formatEta(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "—";
+  }
+
+  const rounded = Math.round(seconds);
+  const min = Math.floor(rounded / 60);
+  const sec = rounded % 60;
+
+  if (min <= 0) {
+    return `${sec} сек`;
+  }
+
+  if (sec === 0) {
+    return `${min} мин`;
+  }
+
+  return `${min} мин ${sec} сек`;
+}
+
+function formatPercent(value) {
+  const bounded = Math.max(0, Math.min(1, Number(value) || 0));
+  return `${Math.round(bounded * 100)}%`;
+}
+
+function toDisplayName(job) {
+  if (typeof job.filename === "string" && job.filename.trim()) {
+    return job.filename;
+  }
+  if (typeof job.name === "string" && job.name.trim()) {
+    return `${job.name}.ts`;
+  }
+  return "video.ts";
+}
+
+function statusLabel(status) {
+  switch (status) {
+    case "preparing":
+      return "Подготовка";
+    case "downloading":
+      return "Скачивание";
+    case "finishing":
+      return "Финализация";
+    case "done":
+      return "Готово";
+    case "error":
+      return "Ошибка";
+    default:
+      return "Ожидание";
+  }
+}
+
+function renderDownloads(jobs = []) {
+  const activeJobs = jobs.filter((job) => job.status !== "done" && job.status !== "error");
+  const visibleJobs = jobs.slice(0, 10);
+
+  downloadsPanelEl.classList.toggle("hidden", visibleJobs.length === 0);
+
+  const totalSegments = activeJobs.reduce((sum, job) => sum + (Number(job.totalSegments) || 0), 0);
+  const doneSegments = activeJobs.reduce((sum, job) => sum + (Number(job.completedSegments) || 0), 0);
+
+  const fallbackProgress = activeJobs.length
+    ? activeJobs.reduce((sum, job) => sum + (Number(job.progress) || 0), 0) / activeJobs.length
+    : 0;
+
+  const overallProgress = totalSegments > 0 ? doneSegments / totalSegments : fallbackProgress;
+
+  overallPercentEl.textContent = formatPercent(overallProgress);
+  overallProgressBarEl.style.width = formatPercent(overallProgress);
+
+  const etaValues = activeJobs
+    .map((job) => Number(job.etaSeconds))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+
+  const totalEta = etaValues.length ? etaValues.reduce((sum, value) => sum + value, 0) : null;
+  overallEtaEl.textContent = `Примерное время: ${formatEta(totalEta)}`;
+
+  downloadingListEl.innerHTML = "";
+  visibleJobs.forEach((job) => {
+    const item = document.createElement("li");
+    item.className = `downloading-item status-${job.status}`;
+
+    const title = document.createElement("div");
+    title.className = "video-title";
+    title.textContent = toDisplayName(job);
+
+    const details = document.createElement("div");
+    details.className = "video-meta";
+
+    const state = statusLabel(job.status);
+    const perc = formatPercent(job.progress);
+    const segPart = job.totalSegments > 0 ? `${job.completedSegments}/${job.totalSegments} сегм.` : "— сегм.";
+    const etaPart = job.status === "error" ? (job.error || "Неизвестная ошибка") : `ETA: ${formatEta(job.etaSeconds)}`;
+
+    details.textContent = `${state} • ${perc} • ${segPart} • ${etaPart}`;
+
+    item.append(title, details);
+    downloadingListEl.append(item);
+  });
 }
 
 function renderList(urls) {
@@ -41,7 +149,7 @@ function renderList(urls) {
 }
 
 function downloadVideo(url, index) {
-  setStatus(`Собираем видео #${index + 1}...`);
+  setStatus(`Добавлено в загрузку видео #${index + 1}.`);
 
   chrome.runtime.sendMessage(
     {
@@ -55,6 +163,7 @@ function downloadVideo(url, index) {
       }
 
       setStatus(`Видео #${index + 1} сохранено (${response.segmentCount} сегм.).`);
+      loadDownloads();
     }
   );
 }
@@ -81,16 +190,39 @@ function loadUrls() {
   });
 }
 
+function loadDownloads() {
+  chrome.runtime.sendMessage({ type: "GET_DOWNLOADS" }, (response) => {
+    const jobs = Array.isArray(response?.jobs) ? response.jobs : [];
+    renderDownloads(jobs);
+  });
+}
+
+function startDownloadsPolling() {
+  loadDownloads();
+  if (downloadsPollTimer) {
+    clearInterval(downloadsPollTimer);
+  }
+  downloadsPollTimer = setInterval(loadDownloads, 1000);
+}
+
 refreshBtn.addEventListener("click", loadUrls);
 
 downloadAllBtn.addEventListener("click", () => {
   currentUrls.forEach((url, index) => downloadVideo(url, index));
 });
 
+window.addEventListener("unload", () => {
+  if (downloadsPollTimer) {
+    clearInterval(downloadsPollTimer);
+    downloadsPollTimer = null;
+  }
+});
+
 (async () => {
   try {
     currentTabId = await getActiveTabId();
     loadUrls();
+    startDownloadsPolling();
   } catch (error) {
     setStatus(`Ошибка: ${error.message}`);
   }

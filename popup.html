@@ -10,6 +10,19 @@
   <main>
     <h1>M3U8 Finder</h1>
     <p id="status">Сканирование...</p>
+
+    <section id="downloadsPanel" class="downloads-panel hidden">
+      <div class="downloads-header">
+        <strong>Загрузка видео</strong>
+        <span id="overallPercent">0%</span>
+      </div>
+      <div class="progress-track" aria-hidden="true">
+        <div id="overallProgressBar" class="progress-fill"></div>
+      </div>
+      <p id="overallEta" class="downloads-meta">Примерное время: —</p>
+      <ul id="downloadingList" class="downloading-list"></ul>
+    </section>
+
     <div class="actions">
       <button id="refreshBtn">Обновить</button>
       <button id="downloadAllBtn" disabled>Скачать все видео</button>
