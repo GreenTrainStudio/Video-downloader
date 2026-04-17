@@ -4,9 +4,6 @@ const refreshBtn = document.getElementById("refreshBtn");
 const downloadAllBtn = document.getElementById("downloadAllBtn");
 
 const downloadsPanelEl = document.getElementById("downloadsPanel");
-const overallPercentEl = document.getElementById("overallPercent");
-const overallProgressBarEl = document.getElementById("overallProgressBar");
-const overallEtaEl = document.getElementById("overallEta");
 const downloadingListEl = document.getElementById("downloadingList");
 
 let currentUrls = [];
@@ -70,29 +67,8 @@ function statusLabel(status) {
 }
 
 function renderDownloads(jobs = []) {
-  const activeJobs = jobs.filter((job) => job.status !== "done" && job.status !== "error");
   const visibleJobs = jobs.slice(0, 10);
-
   downloadsPanelEl.classList.toggle("hidden", visibleJobs.length === 0);
-
-  const totalSegments = activeJobs.reduce((sum, job) => sum + (Number(job.totalSegments) || 0), 0);
-  const doneSegments = activeJobs.reduce((sum, job) => sum + (Number(job.completedSegments) || 0), 0);
-
-  const fallbackProgress = activeJobs.length
-    ? activeJobs.reduce((sum, job) => sum + (Number(job.progress) || 0), 0) / activeJobs.length
-    : 0;
-
-  const overallProgress = totalSegments > 0 ? doneSegments / totalSegments : fallbackProgress;
-
-  overallPercentEl.textContent = formatPercent(overallProgress);
-  overallProgressBarEl.style.width = formatPercent(overallProgress);
-
-  const etaValues = activeJobs
-    .map((job) => Number(job.etaSeconds))
-    .filter((value) => Number.isFinite(value) && value >= 0);
-
-  const totalEta = etaValues.length ? etaValues.reduce((sum, value) => sum + value, 0) : null;
-  overallEtaEl.textContent = `Примерное время: ${formatEta(totalEta)}`;
 
   downloadingListEl.innerHTML = "";
   visibleJobs.forEach((job) => {
@@ -102,6 +78,15 @@ function renderDownloads(jobs = []) {
     const title = document.createElement("div");
     title.className = "video-title";
     title.textContent = toDisplayName(job);
+
+    const progressTrack = document.createElement("div");
+    progressTrack.className = "video-progress-track";
+
+    const progressFill = document.createElement("div");
+    progressFill.className = "video-progress-fill";
+    progressFill.style.width = formatPercent(job.progress);
+
+    progressTrack.append(progressFill);
 
     const details = document.createElement("div");
     details.className = "video-meta";
@@ -113,7 +98,7 @@ function renderDownloads(jobs = []) {
 
     details.textContent = `${state} • ${perc} • ${segPart} • ${etaPart}`;
 
-    item.append(title, details);
+    item.append(title, progressTrack, details);
     downloadingListEl.append(item);
   });
 }
