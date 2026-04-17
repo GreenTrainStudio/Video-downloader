@@ -34,6 +34,22 @@ function sanitizeMeta(meta = {}) {
   return { title, previewUrl };
 }
 
+function resolvePreferredName(preferredName, sourceTabId) {
+  const trimmedPreferredName = typeof preferredName === "string" ? preferredName.trim() : "";
+  if (trimmedPreferredName) {
+    return trimmedPreferredName;
+  }
+
+  if (Number.isInteger(sourceTabId) && sourceTabId >= 0) {
+    const metaTitle = sanitizeMeta(tabMediaMeta.get(sourceTabId)).title;
+    if (metaTitle) {
+      return metaTitle;
+    }
+  }
+
+  return "";
+}
+
 function addUrls(tabId, urls = []) {
   if (!Number.isInteger(tabId) || tabId < 0 || !Array.isArray(urls)) {
     return;
@@ -438,18 +454,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "DOWNLOAD_VIDEO") {
-    const { url, preferredName } = message;
+    const { url, preferredName, sourceTabId } = message;
     if (typeof url !== "string" || !url) {
       sendResponse({ ok: false, error: "Invalid URL" });
       return;
     }
 
-    const job = createDownloadJob(url, preferredName);
+    const resolvedPreferredName = resolvePreferredName(preferredName, sourceTabId);
+    const job = createDownloadJob(url, resolvedPreferredName);
 
     (async () => {
       let dataUrl = null;
       try {
-        const result = await buildVideoFromM3u8(url, preferredName, (completedSegments, totalSegments) => {
+        const result = await buildVideoFromM3u8(url, resolvedPreferredName, (completedSegments, totalSegments) => {
           updateDownloadJob(job.id, {
             status: "downloading",
             completedSegments,

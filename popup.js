@@ -288,7 +288,7 @@ function renderList(urls) {
 
 function downloadVideo(item, index) {
   const url = item?.url;
-  const preferredName = item?.title || currentTabTitle;
+  const preferredName = item?.title || "";
   if (typeof url !== "string" || !url) {
     setStatus("Ошибка: ссылка на видео не найдена.");
     return;
@@ -300,7 +300,8 @@ function downloadVideo(item, index) {
     {
       type: "DOWNLOAD_VIDEO",
       url,
-      preferredName
+      preferredName,
+      sourceTabId: currentTabId
     },
     (response) => {
       if (!response?.ok) {
