@@ -11,7 +11,7 @@ function collectFromText(text) {
     return [];
   }
 
-  const pattern = /(?:https?:\\/\\/|\\/)[^\"'\\s<>]+?\.m3u8(?:\?[^\"'\\s<>]*)?/gi;
+  const pattern = /(?:https?:\/\/|\/)[^"'\s<>]+?\.m3u8(?:\?[^"'\s<>]*)?/gi;
   const matches = text.match(pattern) || [];
 
   return matches

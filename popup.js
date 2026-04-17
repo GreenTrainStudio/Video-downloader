@@ -9,10 +9,10 @@ let currentTabId = null;
 function safeFileName(url, index) {
   try {
     const pathname = new URL(url).pathname;
-    const last = pathname.split("/").filter(Boolean).pop() || `stream-${index + 1}.m3u8`;
-    return last.endsWith(".m3u8") ? last : `${last}.m3u8`;
+    const last = pathname.split("/").filter(Boolean).pop() || `video-${index + 1}`;
+    return `${last.replace(/\.m3u8$/i, "") || `video-${index + 1}`}.ts`;
   } catch {
-    return `stream-${index + 1}.m3u8`;
+    return `video-${index + 1}.ts`;
   }
 }
 
@@ -30,7 +30,7 @@ function renderList(urls) {
     return;
   }
 
-  setStatus(`Найдено ссылок: ${urls.length}`);
+  setStatus(`Найдено плейлистов: ${urls.length}`);
 
   urls.forEach((url, index) => {
     const item = document.createElement("li");
@@ -42,25 +42,28 @@ function renderList(urls) {
 
     const button = document.createElement("button");
     button.className = "download-btn";
-    button.textContent = "Скачать";
-    button.addEventListener("click", () => downloadUrl(url, index));
+    button.textContent = "Скачать видео";
+    button.addEventListener("click", () => downloadVideo(url, index));
 
     item.append(text, button);
     listEl.append(item);
   });
 }
 
-function downloadUrl(url, index) {
+function downloadVideo(url, index) {
+  setStatus(`Собираем видео #${index + 1}...`);
   chrome.runtime.sendMessage(
     {
-      type: "DOWNLOAD_M3U8",
+      type: "DOWNLOAD_VIDEO",
       url,
       filename: safeFileName(url, index)
     },
     (response) => {
       if (!response?.ok) {
-        setStatus(`Ошибка загрузки: ${response?.error || "неизвестная ошибка"}`);
+        setStatus(`Ошибка: ${response?.error || "неизвестная ошибка"}`);
+        return;
       }
+      setStatus(`Видео #${index + 1} подготовлено (${response.segmentCount} сегм.) и отправлено в загрузки.`);
     }
   );
 }
@@ -90,7 +93,7 @@ function loadUrls() {
 refreshBtn.addEventListener("click", loadUrls);
 
 downloadAllBtn.addEventListener("click", () => {
-  currentUrls.forEach((url, index) => downloadUrl(url, index));
+  currentUrls.forEach((url, index) => downloadVideo(url, index));
 });
 
 (async () => {
