@@ -1,5 +1,5 @@
 const statusEl = document.getElementById("status");
-const listEl = document.getElementById("list");
+const availableListEl = document.getElementById("availableList");
 const refreshBtn = document.getElementById("refreshBtn");
 const downloadAllBtn = document.getElementById("downloadAllBtn");
 
@@ -12,6 +12,7 @@ let currentTabTitle = "";
 let downloadsPollTimer = null;
 const previewStreamCache = new Map();
 const loadingPreviewStreams = new Map();
+let latestJobs = [];
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -176,10 +177,17 @@ function dismissDownload(jobId) {
   });
 }
 
-function renderDownloads(jobs = []) {
-  const visibleJobs = jobs.slice(0, 10);
-  downloadsPanelEl.classList.toggle("hidden", visibleJobs.length === 0);
+function updateDownloadsPanelVisibility() {
+  const hasAvailable = currentItems.length > 0;
+  const hasJobs = latestJobs.length > 0;
+  downloadsPanelEl.classList.toggle("hidden", !hasAvailable && !hasJobs);
+}
 
+function renderDownloads(jobs = []) {
+  latestJobs = jobs.slice(0, 10);
+  updateDownloadsPanelVisibility();
+
+  const visibleJobs = jobs.slice(0, 10);
   downloadingListEl.innerHTML = "";
   visibleJobs.forEach((job) => {
     const item = document.createElement("li");
@@ -226,7 +234,7 @@ function renderDownloads(jobs = []) {
 }
 
 function renderList(urls) {
-  listEl.innerHTML = "";
+  availableListEl.innerHTML = "";
   const items = urls
     .map((entry) => {
       if (typeof entry === "string") {
@@ -245,6 +253,7 @@ function renderList(urls) {
     .filter((entry) => typeof entry.url === "string" && entry.url);
 
   currentItems = items;
+  updateDownloadsPanelVisibility();
   downloadAllBtn.disabled = items.length === 0;
 
   if (!items.length) {
@@ -282,7 +291,7 @@ function renderList(urls) {
 
     content.append(title, button);
     card.append(thumb, content);
-    listEl.append(card);
+    availableListEl.append(card);
   });
 }
 

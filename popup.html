@@ -13,7 +13,12 @@
 
     <section id="downloadsPanel" class="downloads-panel hidden">
       <div class="downloads-header">
-        <strong>Загрузка видео</strong>
+        <strong>Доступно для скачивания</strong>
+      </div>
+      <ul id="availableList" class="available-list"></ul>
+
+      <div class="downloads-header">
+        <strong>Очередь загрузки</strong>
       </div>
       <ul id="downloadingList" class="downloading-list"></ul>
     </section>
@@ -22,7 +27,7 @@
       <button id="refreshBtn">Обновить</button>
       <button id="downloadAllBtn" disabled>Скачать все видео</button>
     </div>
-    <ul id="list"></ul>
+    <ul id="list" class="hidden"></ul>
   </main>
   <script src="popup.js"></script>
 </body>

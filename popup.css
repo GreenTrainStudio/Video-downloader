@@ -10,6 +10,10 @@ body {
   width: 420px;
 }
 
+.hidden {
+  display: none !important;
+}
+
 main {
   padding: 12px;
 }
@@ -39,6 +43,10 @@ h1 {
 .downloads-header {
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+.downloads-header + .available-list {
+  margin-bottom: 10px;
 }
 
 .downloading-list {
@@ -152,6 +160,7 @@ button {
   cursor: not-allowed;
 }
 
+.available-list,
 #list {
   list-style: none;
   margin: 0;
@@ -159,7 +168,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 360px;
+  max-height: 240px;
   overflow: auto;
 }
 
