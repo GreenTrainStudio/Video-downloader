@@ -1,4 +1,8 @@
 const tabStreams = new Map();
+const activeDownloads = new Map();
+let nextDownloadJobId = 1;
+const DOWNLOAD_JOB_TTL_MS = 60 * 60 * 1000;
+const TERMINAL_JOB_STATUSES = new Set(["done", "error"]);
 
 function normalizeUrl(url) {
   try {
@@ -88,6 +92,96 @@ function playlistBaseName(url) {
   } catch {
     return "video";
   }
+}
+
+function createDownloadJob(url) {
+  const id = String(nextDownloadJobId);
+  nextDownloadJobId += 1;
+
+  const now = Date.now();
+  const name = playlistBaseName(url);
+  const job = {
+    id,
+    url,
+    name,
+    status: "preparing",
+    progress: 0,
+    completedSegments: 0,
+    totalSegments: 0,
+    startTime: now,
+    updatedAt: now,
+    etaSeconds: null,
+    filename: null,
+    error: null,
+    downloadId: null,
+    completedAt: null
+  };
+
+  activeDownloads.set(id, job);
+  return job;
+}
+
+function estimateEtaSeconds(job) {
+  if (!job.totalSegments || job.completedSegments <= 0) {
+    return null;
+  }
+
+  const elapsedSeconds = (Date.now() - job.startTime) / 1000;
+  const avgPerSegment = elapsedSeconds / job.completedSegments;
+  const remaining = Math.max(job.totalSegments - job.completedSegments, 0);
+  const eta = Math.round(avgPerSegment * remaining);
+  return Number.isFinite(eta) ? eta : null;
+}
+
+function updateDownloadJob(jobId, patch = {}) {
+  const job = activeDownloads.get(jobId);
+  if (!job) {
+    return;
+  }
+
+  Object.assign(job, patch);
+  job.updatedAt = Date.now();
+
+  if (job.status === "downloading") {
+    job.etaSeconds = estimateEtaSeconds(job);
+  } else if (job.status === "done") {
+    job.etaSeconds = 0;
+  }
+
+  if (TERMINAL_JOB_STATUSES.has(job.status) && !job.completedAt) {
+    job.completedAt = Date.now();
+  }
+}
+
+function pruneDownloadJobs() {
+  const now = Date.now();
+  for (const [jobId, job] of activeDownloads.entries()) {
+    if (!TERMINAL_JOB_STATUSES.has(job.status)) {
+      continue;
+    }
+
+    const completedAt = Number(job.completedAt) || Number(job.updatedAt) || now;
+    if (now - completedAt >= DOWNLOAD_JOB_TTL_MS) {
+      activeDownloads.delete(jobId);
+    }
+  }
+}
+
+function snapshotDownloadJobs() {
+  pruneDownloadJobs();
+  return Array.from(activeDownloads.values())
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((job) => ({ ...job }));
+}
+
+function parseHumanError(error) {
+  if (!error) {
+    return "Не удалось собрать видео";
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return error.message || "Не удалось собрать видео";
 }
 
 async function fetchText(url) {
@@ -181,15 +275,20 @@ async function fetchBinary(url) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
-async function downloadSegmentsConcurrently(urls, concurrency = 8) {
+async function downloadSegmentsConcurrently(urls, concurrency = 8, onProgress = null) {
   const results = new Array(urls.length);
   let nextIndex = 0;
+  let completed = 0;
 
   async function worker() {
     while (nextIndex < urls.length) {
       const current = nextIndex;
       nextIndex += 1;
       results[current] = await fetchBinary(urls[current]);
+      completed += 1;
+      if (typeof onProgress === "function") {
+        onProgress(completed, urls.length);
+      }
     }
   }
 
@@ -219,7 +318,7 @@ function toDataUrl(chunks) {
   return `data:video/mp2t;base64,${base64}`;
 }
 
-async function buildVideoFromM3u8(m3u8Url) {
+async function buildVideoFromM3u8(m3u8Url, onProgress = null) {
   const firstText = await fetchText(m3u8Url);
 
   let mediaUrl = m3u8Url;
@@ -235,7 +334,11 @@ async function buildVideoFromM3u8(m3u8Url) {
   }
 
   const segmentUrls = parseMediaPlaylist(mediaText, mediaUrl);
-  const chunks = await downloadSegmentsConcurrently(segmentUrls, 8);
+  if (typeof onProgress === "function") {
+    onProgress(0, segmentUrls.length);
+  }
+
+  const chunks = await downloadSegmentsConcurrently(segmentUrls, 8, onProgress);
 
   return {
     dataUrl: toDataUrl(chunks),
@@ -284,6 +387,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  if (message.type === "GET_DOWNLOADS") {
+    sendResponse({ jobs: snapshotDownloadJobs() });
+    return;
+  }
+
+  if (message.type === "DISMISS_DOWNLOAD") {
+    const { jobId } = message;
+    if (typeof jobId !== "string" || !jobId) {
+      sendResponse({ ok: false, error: "Invalid jobId" });
+      return;
+    }
+
+    const job = activeDownloads.get(jobId);
+    if (!job) {
+      sendResponse({ ok: false, error: "Job not found" });
+      return;
+    }
+
+    if (!TERMINAL_JOB_STATUSES.has(job.status)) {
+      sendResponse({ ok: false, error: "Job is not completed" });
+      return;
+    }
+
+    activeDownloads.delete(jobId);
+    sendResponse({ ok: true });
+    return;
+  }
+
   if (message.type === "DOWNLOAD_VIDEO") {
     const { url } = message;
     if (typeof url !== "string" || !url) {
@@ -291,11 +422,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
+    const job = createDownloadJob(url);
+
     (async () => {
       let dataUrl = null;
       try {
-        const result = await buildVideoFromM3u8(url);
+        const result = await buildVideoFromM3u8(url, (completedSegments, totalSegments) => {
+          updateDownloadJob(job.id, {
+            status: "downloading",
+            completedSegments,
+            totalSegments,
+            progress: totalSegments > 0 ? completedSegments / totalSegments : 0,
+            filename: null
+          });
+        });
+
         dataUrl = result.dataUrl;
+        updateDownloadJob(job.id, {
+          status: "finishing",
+          progress: 1,
+          completedSegments: result.segmentCount,
+          totalSegments: result.segmentCount,
+          filename: result.filename,
+          etaSeconds: 0
+        });
 
         chrome.downloads.download(
           {
@@ -306,14 +456,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           },
           (downloadId) => {
             if (chrome.runtime.lastError) {
-              sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+              const err = chrome.runtime.lastError.message;
+              updateDownloadJob(job.id, { status: "error", error: err });
+              sendResponse({ ok: false, error: err, jobId: job.id });
             } else {
-              sendResponse({ ok: true, downloadId, segmentCount: result.segmentCount });
+              updateDownloadJob(job.id, { status: "done", downloadId, error: null, etaSeconds: 0, progress: 1 });
+              sendResponse({ ok: true, downloadId, segmentCount: result.segmentCount, jobId: job.id });
             }
           }
         );
       } catch (error) {
-        sendResponse({ ok: false, error: error.message || "Не удалось собрать видео" });
+        const humanError = parseHumanError(error);
+        updateDownloadJob(job.id, { status: "error", error: humanError });
+        sendResponse({ ok: false, error: humanError, jobId: job.id });
       }
     })();
 
