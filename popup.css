@@ -212,8 +212,19 @@ button {
   min-height: 34px;
 }
 
+.video-card-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .download-btn {
   align-self: flex-start;
   padding: 6px 12px;
   border-radius: 999px;
+}
+
+.download-btn:disabled {
+  background: #475569;
+  cursor: not-allowed;
 }

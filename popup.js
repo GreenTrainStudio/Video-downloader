@@ -1,10 +1,9 @@
 const statusEl = document.getElementById("status");
-const availableListEl = document.getElementById("availableList");
+const videoQueueListEl = document.getElementById("videoQueueList");
 const refreshBtn = document.getElementById("refreshBtn");
 const downloadAllBtn = document.getElementById("downloadAllBtn");
 
 const downloadsPanelEl = document.getElementById("downloadsPanel");
-const downloadingListEl = document.getElementById("downloadingList");
 
 let currentItems = [];
 let currentTabId = null;
@@ -178,63 +177,121 @@ function dismissDownload(jobId) {
 }
 
 function updateDownloadsPanelVisibility() {
-  const hasAvailable = currentItems.length > 0;
-  const hasJobs = latestJobs.length > 0;
-  downloadsPanelEl.classList.toggle("hidden", !hasAvailable && !hasJobs);
+  downloadsPanelEl.classList.toggle("hidden", currentItems.length === 0 && latestJobs.length === 0);
 }
 
-function renderDownloads(jobs = []) {
-  latestJobs = jobs.slice(0, 10);
-  updateDownloadsPanelVisibility();
+function getJobForUrl(url) {
+  if (typeof url !== "string" || !url) {
+    return null;
+  }
+  return latestJobs.find((job) => job.url === url) || null;
+}
 
-  const visibleJobs = jobs.slice(0, 10);
-  downloadingListEl.innerHTML = "";
-  visibleJobs.forEach((job) => {
-    const item = document.createElement("li");
-    item.className = `downloading-item status-${job.status}`;
+function renderUnifiedList() {
+  videoQueueListEl.innerHTML = "";
+  const usedUrls = new Set();
+  const entries = [];
+
+  currentItems.forEach((item) => {
+    const job = getJobForUrl(item.url);
+    if (item.url) {
+      usedUrls.add(item.url);
+    }
+    entries.push({
+      url: item.url,
+      title: item.title,
+      previewUrl: item.previewUrl,
+      job
+    });
+  });
+
+  latestJobs.forEach((job) => {
+    if (usedUrls.has(job.url)) {
+      return;
+    }
+    entries.push({
+      url: job.url,
+      title: job.name || toDisplayName(job),
+      previewUrl: "",
+      job
+    });
+  });
+
+  entries.slice(0, 12).forEach((entry, index) => {
+    const card = document.createElement("li");
+    card.className = `video-card ${entry.job ? `status-${entry.job.status}` : ""}`.trim();
+
+    const thumb = document.createElement("video");
+    thumb.className = "video-thumb";
+    thumb.muted = true;
+    thumb.autoplay = true;
+    thumb.loop = true;
+    thumb.playsInline = true;
+    thumb.preload = "metadata";
+    thumb.poster = entry.previewUrl || "";
+    attachVideoPreview(thumb, entry.url);
+
+    const content = document.createElement("div");
+    content.className = "video-card-content";
 
     const title = document.createElement("div");
-    title.className = "video-title";
-    const titleText = document.createElement("span");
-    titleText.className = "video-title-text";
-    titleText.textContent = toDisplayName(job);
-    title.append(titleText);
-    if (isDismissibleJob(job)) {
+    title.className = "video-card-title";
+    title.textContent = entry.title || "Видео";
+
+    const controls = document.createElement("div");
+    controls.className = "video-card-controls";
+
+    const button = document.createElement("button");
+    button.className = "download-btn";
+    button.textContent = "Скачать";
+
+    const hasActiveJob = entry.job && !isDismissibleJob(entry.job);
+    if (hasActiveJob) {
+      button.disabled = true;
+      button.textContent = "Скачивается…";
+    } else {
+      button.addEventListener("click", () => downloadVideo(entry, index));
+    }
+
+    controls.append(button);
+
+    if (entry.job && isDismissibleJob(entry.job)) {
       const closeBtn = document.createElement("button");
       closeBtn.className = "dismiss-btn";
       closeBtn.type = "button";
       closeBtn.title = "Скрыть выполненную загрузку";
       closeBtn.textContent = "×";
-      closeBtn.addEventListener("click", () => dismissDownload(job.id));
-      title.append(closeBtn);
+      closeBtn.addEventListener("click", () => dismissDownload(entry.job.id));
+      controls.append(closeBtn);
     }
 
-    const progressTrack = document.createElement("div");
-    progressTrack.className = "video-progress-track";
+    content.append(title, controls);
 
-    const progressFill = document.createElement("div");
-    progressFill.className = "video-progress-fill";
-    progressFill.style.width = formatPercent(job.progress);
+    if (entry.job) {
+      const progressTrack = document.createElement("div");
+      progressTrack.className = "video-progress-track";
 
-    progressTrack.append(progressFill);
+      const progressFill = document.createElement("div");
+      progressFill.className = "video-progress-fill";
+      progressFill.style.width = formatPercent(entry.job.progress);
+      progressTrack.append(progressFill);
 
-    const details = document.createElement("div");
-    details.className = "video-meta";
+      const details = document.createElement("div");
+      details.className = "video-meta";
+      const state = statusLabel(entry.job.status);
+      const perc = formatPercent(entry.job.progress);
+      const segPart = entry.job.totalSegments > 0 ? `${entry.job.completedSegments}/${entry.job.totalSegments} сегм.` : "— сегм.";
+      const etaPart = entry.job.status === "error" ? (entry.job.error || "Неизвестная ошибка") : `ETA: ${formatEta(entry.job.etaSeconds)}`;
+      details.textContent = `${state} • ${perc} • ${segPart} • ${etaPart}`;
+      content.append(progressTrack, details);
+    }
 
-    const state = statusLabel(job.status);
-    const perc = formatPercent(job.progress);
-    const segPart = job.totalSegments > 0 ? `${job.completedSegments}/${job.totalSegments} сегм.` : "— сегм.";
-    const etaPart = job.status === "error" ? (job.error || "Неизвестная ошибка") : `ETA: ${formatEta(job.etaSeconds)}`;
-
-    details.textContent = `${state} • ${perc} • ${segPart} • ${etaPart}`;
-
-    item.append(title, progressTrack, details);
-    downloadingListEl.append(item);
+    card.append(thumb, content);
+    videoQueueListEl.append(card);
   });
 }
 
 function renderList(urls) {
-  availableListEl.innerHTML = "";
   const items = urls
     .map((entry) => {
       if (typeof entry === "string") {
@@ -254,6 +311,7 @@ function renderList(urls) {
 
   currentItems = items;
   updateDownloadsPanelVisibility();
+  renderUnifiedList();
   downloadAllBtn.disabled = items.length === 0;
 
   if (!items.length) {
@@ -262,37 +320,6 @@ function renderList(urls) {
   }
 
   setStatus(`Найдено плейлистов: ${items.length}`);
-
-  items.forEach((entry, index) => {
-    const card = document.createElement("li");
-    card.className = "video-card";
-
-    const thumb = document.createElement("video");
-    thumb.className = "video-thumb";
-    thumb.muted = true;
-    thumb.autoplay = true;
-    thumb.loop = true;
-    thumb.playsInline = true;
-    thumb.preload = "metadata";
-    thumb.poster = entry.previewUrl || "";
-    attachVideoPreview(thumb, entry.url);
-
-    const content = document.createElement("div");
-    content.className = "video-card-content";
-
-    const title = document.createElement("div");
-    title.className = "video-card-title";
-    title.textContent = entry.title || "Видео";
-
-    const button = document.createElement("button");
-    button.className = "download-btn";
-    button.textContent = "Скачать";
-    button.addEventListener("click", () => downloadVideo(entry, index));
-
-    content.append(title, button);
-    card.append(thumb, content);
-    availableListEl.append(card);
-  });
 }
 
 function downloadVideo(item, index) {
@@ -352,8 +379,9 @@ function loadUrls() {
 
 function loadDownloads() {
   chrome.runtime.sendMessage({ type: "GET_DOWNLOADS" }, (response) => {
-    const jobs = Array.isArray(response?.jobs) ? response.jobs : [];
-    renderDownloads(jobs);
+    latestJobs = Array.isArray(response?.jobs) ? response.jobs.slice(0, 20) : [];
+    updateDownloadsPanelVisibility();
+    renderUnifiedList();
   });
 }
 
