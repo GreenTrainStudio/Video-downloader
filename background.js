@@ -1,4 +1,5 @@
 const tabStreams = new Map();
+const tabMediaMeta = new Map();
 const activeDownloads = new Map();
 let nextDownloadJobId = 1;
 const DOWNLOAD_JOB_TTL_MS = 60 * 60 * 1000;
@@ -25,6 +26,28 @@ function updateBadge(tabId) {
   const count = tabStreams.get(tabId)?.size ?? 0;
   chrome.action.setBadgeBackgroundColor({ tabId, color: "#0B8043" });
   chrome.action.setBadgeText({ tabId, text: count > 0 ? String(count) : "" });
+}
+
+function sanitizeMeta(meta = {}) {
+  const title = typeof meta.title === "string" ? meta.title.trim() : "";
+  const previewUrl = typeof meta.previewUrl === "string" ? meta.previewUrl.trim() : "";
+  return { title, previewUrl };
+}
+
+function resolvePreferredName(preferredName, sourceTabId) {
+  const trimmedPreferredName = typeof preferredName === "string" ? preferredName.trim() : "";
+  if (trimmedPreferredName) {
+    return trimmedPreferredName;
+  }
+
+  if (Number.isInteger(sourceTabId) && sourceTabId >= 0) {
+    const metaTitle = sanitizeMeta(tabMediaMeta.get(sourceTabId)).title;
+    if (metaTitle) {
+      return metaTitle;
+    }
+  }
+
+  return "";
 }
 
 function addUrls(tabId, urls = []) {
@@ -94,12 +117,13 @@ function playlistBaseName(url) {
   }
 }
 
-function createDownloadJob(url) {
+function createDownloadJob(url, preferredName = "") {
   const id = String(nextDownloadJobId);
   nextDownloadJobId += 1;
 
   const now = Date.now();
-  const name = playlistBaseName(url);
+  const trimmedName = typeof preferredName === "string" ? preferredName.trim() : "";
+  const name = trimmedName || playlistBaseName(url);
   const job = {
     id,
     url,
@@ -318,7 +342,7 @@ function toDataUrl(chunks) {
   return `data:video/mp2t;base64,${base64}`;
 }
 
-async function buildVideoFromM3u8(m3u8Url, onProgress = null) {
+async function buildVideoFromM3u8(m3u8Url, preferredName = "", onProgress = null) {
   const firstText = await fetchText(m3u8Url);
 
   let mediaUrl = m3u8Url;
@@ -340,10 +364,13 @@ async function buildVideoFromM3u8(m3u8Url, onProgress = null) {
 
   const chunks = await downloadSegmentsConcurrently(segmentUrls, 8, onProgress);
 
+  const trimmedName = typeof preferredName === "string" ? preferredName.trim() : "";
+  const outputBaseName = trimmedName || playlistBaseName(mediaUrl);
+
   return {
     dataUrl: toDataUrl(chunks),
     segmentCount: segmentUrls.length,
-    filename: sanitizeFilename(playlistBaseName(mediaUrl), "ts")
+    filename: sanitizeFilename(outputBaseName, "ts")
   };
 }
 
@@ -360,12 +387,14 @@ chrome.webRequest.onCompleted.addListener(
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading") {
     tabStreams.set(tabId, new Set());
+    tabMediaMeta.delete(tabId);
     updateBadge(tabId);
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabStreams.delete(tabId);
+  tabMediaMeta.delete(tabId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -376,6 +405,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "FOUND_M3U8") {
     const tabId = sender.tab?.id;
     addUrls(tabId, message.urls);
+    if (Number.isInteger(tabId) && tabId >= 0) {
+      tabMediaMeta.set(tabId, sanitizeMeta(message.meta));
+    }
     sendResponse({ ok: true });
     return;
   }
@@ -383,7 +415,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_M3U8") {
     const tabId = message.tabId;
     const urls = Array.from(tabStreams.get(tabId) ?? []);
-    sendResponse({ urls });
+    const meta = sanitizeMeta(tabMediaMeta.get(tabId));
+    const items = urls.map((url) => ({
+      url,
+      title: meta.title || playlistBaseName(url),
+      previewUrl: meta.previewUrl
+    }));
+    sendResponse({ urls, items });
     return;
   }
 
@@ -416,18 +454,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "DOWNLOAD_VIDEO") {
-    const { url } = message;
+    const { url, preferredName, sourceTabId } = message;
     if (typeof url !== "string" || !url) {
       sendResponse({ ok: false, error: "Invalid URL" });
       return;
     }
 
-    const job = createDownloadJob(url);
+    const resolvedPreferredName = resolvePreferredName(preferredName, sourceTabId);
+    const job = createDownloadJob(url, resolvedPreferredName);
 
     (async () => {
       let dataUrl = null;
       try {
-        const result = await buildVideoFromM3u8(url, (completedSegments, totalSegments) => {
+        const result = await buildVideoFromM3u8(url, resolvedPreferredName, (completedSegments, totalSegments) => {
           updateDownloadJob(job.id, {
             status: "downloading",
             completedSegments,

@@ -19,6 +19,32 @@ function collectFromText(text) {
     .filter((url) => typeof url === "string" && url.includes(".m3u8"));
 }
 
+function readMetaContent(selector) {
+  const element = document.querySelector(selector);
+  const value = element?.getAttribute("content") || "";
+  return value.trim();
+}
+
+function detectPreviewUrl() {
+  const fromVideoPoster = document.querySelector("video[poster]")?.getAttribute("poster") || "";
+  const fromOg = readMetaContent('meta[property="og:image"]');
+  const fromTwitter = readMetaContent('meta[name="twitter:image"]');
+  const fromImageSrc = document.querySelector('link[rel="image_src"]')?.getAttribute("href") || "";
+  const fromFirstImage = document.querySelector("img[src]")?.getAttribute("src") || "";
+  const candidate = fromVideoPoster || fromOg || fromTwitter || fromImageSrc || fromFirstImage;
+  if (!candidate) {
+    return "";
+  }
+  return resolveUrl(candidate) || "";
+}
+
+function detectVideoTitle() {
+  const fromOg = readMetaContent('meta[property="og:title"]');
+  const fromTwitter = readMetaContent('meta[name="twitter:title"]');
+  const pageTitle = (document.title || "").trim();
+  return fromOg || fromTwitter || pageTitle || "";
+}
+
 function findM3u8Urls() {
   const found = new Set();
 
@@ -61,7 +87,11 @@ function sendFoundUrls() {
 
   chrome.runtime.sendMessage({
     type: "FOUND_M3U8",
-    urls
+    urls,
+    meta: {
+      title: detectVideoTitle(),
+      previewUrl: detectPreviewUrl()
+    }
   });
 }
 
