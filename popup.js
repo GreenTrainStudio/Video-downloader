@@ -32,16 +32,16 @@ function renderList(urls) {
 
     const button = document.createElement("button");
     button.className = "download-btn";
-    button.textContent = "Быстрая загрузка";
-    button.addEventListener("click", () => downloadFastest(url, index));
+    button.textContent = "Скачать видео";
+    button.addEventListener("click", () => downloadVideo(url, index));
 
     item.append(text, button);
     listEl.append(item);
   });
 }
 
-function downloadFastest(url, index) {
-  setStatus(`Запуск быстрой загрузки #${index + 1}...`);
+function downloadVideo(url, index) {
+  setStatus(`Собираем видео #${index + 1}...`);
 
   chrome.runtime.sendMessage(
     {
@@ -54,11 +54,7 @@ function downloadFastest(url, index) {
         return;
       }
 
-      if (response.bandwidth) {
-        setStatus(`Загрузка #${index + 1} запущена (макс. BANDWIDTH=${response.bandwidth}).`);
-      } else {
-        setStatus(`Загрузка #${index + 1} запущена.`);
-      }
+      setStatus(`Видео #${index + 1} сохранено (${response.segmentCount} сегм.).`);
     }
   );
 }
@@ -88,7 +84,7 @@ function loadUrls() {
 refreshBtn.addEventListener("click", loadUrls);
 
 downloadAllBtn.addEventListener("click", () => {
-  currentUrls.forEach((url, index) => downloadFastest(url, index));
+  currentUrls.forEach((url, index) => downloadVideo(url, index));
 });
 
 (async () => {
