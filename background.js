@@ -124,6 +124,7 @@ function createDownloadJob(url, preferredName = "") {
   const now = Date.now();
   const trimmedName = typeof preferredName === "string" ? preferredName.trim() : "";
   const name = trimmedName || playlistBaseName(url);
+  const filename = sanitizeFilename(name, "ts");
   const job = {
     id,
     url,
@@ -135,7 +136,7 @@ function createDownloadJob(url, preferredName = "") {
     startTime: now,
     updatedAt: now,
     etaSeconds: null,
-    filename: null,
+    filename,
     error: null,
     downloadId: null,
     completedAt: null
@@ -471,8 +472,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             status: "downloading",
             completedSegments,
             totalSegments,
-            progress: totalSegments > 0 ? completedSegments / totalSegments : 0,
-            filename: null
+            progress: totalSegments > 0 ? completedSegments / totalSegments : 0
           });
         });
 
